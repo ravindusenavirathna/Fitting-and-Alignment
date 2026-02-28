@@ -1,172 +1,75 @@
-# """
-# IN4640 Assignment 2 - Question 2
-# Estimating physical size of earrings from a camera image.
+import cv2
+import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
-# Camera parameters:
-#   - Focal length      : f  = 8 mm
-#   - Pixel size        : p  = 2.2 µm = 0.0022 mm
-#   - Image distance    : di = 720 mm  (lens to sensor)
-#                         --> object distance via thin lens equation
-# """
+f_mm = 8.0
+Z_mm = 720.0
+pixel_pitch_mm = 0.0022
+mm_per_pixel = (pixel_pitch_mm * Z_mm) / f_mm
 
-# import cv2
-# import numpy as np
-# import matplotlib.pyplot as plt
-# import matplotlib.patches as patches
+img = cv2.imread("../assets/earrings.jpg")
 
-# # ─────────────────────────────────────────────
-# # 1.  CAMERA / LENS PARAMETERS
-# # ─────────────────────────────────────────────
-# f_mm = 8          # focal length  (mm)
-# do_mm = 720        # object distance, i.e. lens-to-earrings (mm)
-# px_mm = 0.0022     # pixel pitch   (mm/pixel)
+img_annotated = img.copy()
+gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-# # Thin-lens equation:  1/f = 1/do + 1/di  =>  di = f*do / (do - f)
-# di_mm = (f_mm * do_mm) / (do_mm - f_mm)
+# Threshold to isolate the shapes
+_, thresh = cv2.threshold(gray, 220, 255, cv2.THRESH_BINARY_INV)
 
-# # Magnification  m = di / do
-# magnification = di_mm / do_mm
+# Draw Bounding Boxes
+contours, hierarchy = cv2.findContours(
+    thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-# print("=" * 50)
-# print("CAMERA MODEL")
-# print("=" * 50)
-# print(f"  Focal length       f  = {f_mm} mm")
-# print(f"  Object distance    do = {do_mm} mm")
-# print(f"  Image distance     di = {di_mm:.4f} mm")
-# print(f"  Magnification      m  = {magnification:.4f}")
-# print(f"  Pixel size         p  = {px_mm} mm")
-# print()
+for i, contour in enumerate(contours):
+    if cv2.contourArea(contour) > 500:
 
+        parent_idx = hierarchy[0][i][3]
+        is_outer = (parent_idx == -1)
+        label = "OUTER Box" if is_outer else "INNER Box"
 
-# def pixels_to_mm(n_pixels):
-#     """Convert a pixel measurement in the image to mm in the real world."""
-#     image_size_mm = n_pixels * px_mm       # size on sensor (mm)
-#     real_size_mm = image_size_mm / magnification
-#     return real_size_mm
+        # Blue for Outer, Red for Inner
+        box_color = (255, 0, 0) if is_outer else (0, 0, 255)
 
+        bx, by, bw, bh = cv2.boundingRect(contour)
 
-# # ─────────────────────────────────────────────
-# # 2.  LOAD IMAGE
-# # ─────────────────────────────────────────────
-# IMG_PATH = "../assets/earrings.jpg"   # <-- change to your image filename
+        real_width_mm = bw * mm_per_pixel
 
-# img = cv2.imread(IMG_PATH)
-# if img is None:
-#     raise FileNotFoundError(f"Could not load '{IMG_PATH}'. "
-#                             "Place the earring image in the same folder.")
+        print(f"{label}:")
+        print(f"  - Pixel Width: {bw} px")
+        print(f"  - Real Diameter: {real_width_mm:.2f} mm\n")
 
-# img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-# gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-# h, w = gray.shape
-# print(f"Image size: {w} × {h} pixels")
+        cv2.rectangle(img_annotated, (bx, by),
+                      (bx + bw, by + bh), box_color, 2)
 
-# # ─────────────────────────────────────────────
-# # 3.  AUTOMATIC MEASUREMENT VIA CONTOUR DETECTION
-# # ─────────────────────────────────────────────
-# # Threshold to isolate the (gold) earrings against a white background
-# _, thresh = cv2.threshold(gray, 230, 255, cv2.THRESH_BINARY_INV)
+        y_center = by + (bh // 2)
+        cv2.line(img_annotated, (bx, y_center),
+                 (bx + bw, y_center), box_color, 1)
+        cv2.circle(img_annotated, (bx, y_center), 4, box_color, -1)
+        cv2.circle(img_annotated, (bx + bw, y_center), 4, box_color, -1)
 
-# # Morphological clean-up
-# kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-# thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-# thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN,  kernel)
+        cv2.putText(img_annotated, label, (bx, by - 8),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 2)
 
-# # Find contours
-# contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL,
-#                                cv2.CHAIN_APPROX_SIMPLE)
+img_annotated_rgb = cv2.cvtColor(img_annotated, cv2.COLOR_BGR2RGB)
 
-# # Keep only the two largest contours (= the two earrings)
-# contours = sorted(contours, key=cv2.contourArea, reverse=True)[:2]
+height_px, width_px, _ = img_rgb.shape
+total_width_mm = width_px * mm_per_pixel
+total_height_mm = height_px * mm_per_pixel
 
-# print("\n" + "=" * 50)
-# print("AUTOMATIC CONTOUR-BASED MEASUREMENT")
-# print("=" * 50)
+fig, ax = plt.subplots(figsize=(10, 8))
+ax.imshow(img_annotated_rgb, extent=[0, total_width_mm, total_height_mm, 0])
 
-# results = []
-# img_annotated = img_rgb.copy()
+ax.xaxis.set_minor_locator(ticker.MultipleLocator(2))
+ax.yaxis.set_minor_locator(ticker.MultipleLocator(2))
 
-# for i, cnt in enumerate(contours):
-#     # Fit a bounding circle and an ellipse
-#     (cx, cy), radius_px = cv2.minEnclosingCircle(cnt)
-#     ellipse = cv2.fitEllipse(cnt)
-#     (ex, ey), (ma, mi), angle = ellipse   # major & minor axes in pixels
+ax.grid(which='major', color='black', linestyle='-', linewidth=1.2, alpha=0.8)
+ax.grid(which='minor', color='black', linestyle=':', linewidth=0.7, alpha=0.5)
 
-#     # Convert pixel measurements to real-world mm
-#     diameter_mm = pixels_to_mm(2 * radius_px)
-#     major_mm = pixels_to_mm(ma)
-#     minor_mm = pixels_to_mm(mi)
+ax.set_xlabel("Width (mm)", fontsize=12, fontweight='bold')
+ax.set_ylabel("Height (mm)", fontsize=12, fontweight='bold')
+ax.set_title("Earring Dimensions with Millimeter Grid",
+             fontsize=14, fontweight='bold')
 
-#     print(f"\n  Earring {i+1}  (centre ≈ ({cx:.0f}, {cy:.0f}) px)")
-#     print(f"    Enclosing circle  radius = {radius_px:.1f} px  "
-#           f"→ diameter = {diameter_mm:.2f} mm")
-#     print(f"    Fitted ellipse    major  = {ma:.1f} px  → {major_mm:.2f} mm")
-#     print(f"                      minor  = {mi:.1f} px  → {minor_mm:.2f} mm")
-
-#     results.append(dict(cx=cx, cy=cy, radius_px=radius_px,
-#                         diameter_mm=diameter_mm,
-#                         major_mm=major_mm, minor_mm=minor_mm))
-
-#     # Draw on image
-#     cv2.circle(img_annotated,
-#                (int(cx), int(cy)), int(radius_px), (255, 80, 0), 2)
-#     cv2.putText(img_annotated,
-#                 f"E{i+1}: {diameter_mm:.1f} mm",
-#                 (int(cx - radius_px), int(cy - radius_px - 8)),
-#                 cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 80, 0), 2)
-
-# # ─────────────────────────────────────────────
-# # 4.  INTERACTIVE MANUAL MEASUREMENT (matplotlib)
-# #     Click two points → get the real distance
-# # ─────────────────────────────────────────────
-# manual_points = []
-
-
-# def on_click(event):
-#     if event.inaxes and event.button == 1:
-#         manual_points.append((event.xdata, event.ydata))
-#         ax2.plot(event.xdata, event.ydata, 'r+', markersize=12, mew=2)
-#         if len(manual_points) == 2:
-#             p1, p2 = manual_points
-#             dist_px = np.hypot(p2[0]-p1[0], p2[1]-p1[1])
-#             dist_mm = pixels_to_mm(dist_px)
-#             ax2.plot([p1[0], p2[0]], [p1[1], p2[1]], 'r-', lw=1.5)
-#             ax2.set_title(f"Manual: {dist_px:.1f} px  →  {dist_mm:.2f} mm",
-#                           color='red')
-#             manual_points.clear()   # reset for next pair
-#         fig2.canvas.draw()
-
-
-# fig2, ax2 = plt.subplots(figsize=(7, 5))
-# ax2.imshow(img_rgb)
-# ax2.set_title("Click two points to measure a distance  (repeatable)")
-# fig2.canvas.mpl_connect('button_press_event', on_click)
-
-# # ─────────────────────────────────────────────
-# # 5.  SUMMARY PLOT
-# # ─────────────────────────────────────────────
-# fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-# fig.suptitle("Earring Size Estimation", fontsize=14, fontweight='bold')
-
-# axes[0].imshow(img_rgb)
-# axes[0].set_title("Original Image")
-# axes[0].axis('off')
-# axes[1].imshow(thresh, cmap='gray')
-# axes[1].set_title("Binary Mask")
-# axes[1].axis('off')
-# axes[2].imshow(img_annotated)
-# axes[2].set_title("Detected Earrings")
-# axes[2].axis('off')
-
-# # Add a text summary box
-# summary = "\n".join(
-#     [f"Earring {i+1}: ⌀ ≈ {r['diameter_mm']:.1f} mm" for i,
-#         r in enumerate(results)]
-# )
-# axes[2].text(5, h - 10, summary, color='white', fontsize=10,
-#              va='bottom',
-#              bbox=dict(boxstyle='round', facecolor='black', alpha=0.6))
-
-# plt.tight_layout()
-# plt.savefig("earring_size_result.png", dpi=150, bbox_inches='tight')
-# print("\nSaved result image → earring_size_result.png")
-# plt.show()   # also shows the interactive manual measurement window
+plt.tight_layout()
+plt.savefig("../results/earrings_bounding_boxes.png", dpi=300)
+plt.show()
